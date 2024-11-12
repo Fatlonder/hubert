@@ -10,7 +10,7 @@ from layer_norm import LayerNorm
 from conformer_layer import ConformerWav2Vec2EncoderLayer
 from transpose_last import TransposeLast
 from same_pad import SamePad
-from config.dataclass import Wav2Vec2Config
+from utils.config import Wav2Vec2Config
 from checkpoint_wrapper import * 
 
 

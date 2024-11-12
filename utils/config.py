@@ -3,14 +3,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import ..utils as utils
+from . import utils
 
 from dataclasses import _MISSING_TYPE, dataclass, field
 from typing import Any, List, Optional
 from typing import Any, List, Optional, Tuple
 from enum import Enum, EnumMeta
 
-from omegaconf import II
+#from omegaconf import II
 
 class StrEnumMeta(EnumMeta):
     # this is workaround for submitit pickling leading to instance checks failing in hydra for StrEnum, see
@@ -135,8 +135,54 @@ class FairseqDataclass:
             return config
 
 @dataclass
+class CommonConfig(FairseqDataclass):
+    fp16: bool = field(default=False, metadata={"help": "Use FP16 precision"})
+    log_format: str = field(default="simple", metadata={"help": "Format for logging"})
+    log_interval: int = field(default=100, metadata={"help": "Interval for logging"})
+    seed: int = field(default=42, metadata={"help": "Random seed"})
+    tensorboard_logdir: str = field(default="", metadata={"help": "Tensorboard log directory"})
+
+@dataclass
+class CheckpointConfig(FairseqDataclass):
+    save_interval_updates: int = field(default=1000, metadata={"help": "Interval for saving checkpoints"})
+    keep_interval_updates: int = field(default=5, metadata={"help": "Keep this many checkpoints"})
+    no_epoch_checkpoints: bool = field(default=True, metadata={"help": "Skip epoch checkpoints"})
+
+@dataclass
+class DistributedTrainingConfig(FairseqDataclass):
+    ddp_backend: str = field(default="c10d", metadata={"help": "DDP backend"})
+    distributed_backend: str = field(default="nccl", metadata={"help": "Backend for distributed training"})
+    distributed_world_size: int = field(default=1, metadata={"help": "Total world size"})
+    distributed_port: int = field(default=12345, metadata={"help": "Port for distributed training"})
+    nprocs_per_node: int = field(default=1, metadata={"help": "Processes per node"})
+    find_unused_parameters: bool = field(default=False, metadata={"help": "Find unused parameters in DDP"})
+
+@dataclass
+class TaskConfig(FairseqDataclass):
+    _name: Optional[str] = field(default="audio_pretraining", metadata={"help": "Name of the task"})
+    label_dir: str = field(default="", metadata={"help": "Directory with label files"})
+    labels: str = field(default="phn", metadata={"help": "Label set for task"})
+    label_rate: float = field(default=50.0, metadata={"help": "Label sample rate"})
+    sample_rate: int = field(default=16000, metadata={"help": "Audio sample rate"})
+    max_sample_size: Optional[int] = field(default=None, metadata={"help": "Max audio sample size"})
+    min_sample_size: Optional[int] = field(default=None, metadata={"help": "Min audio sample size"})
+    pad_audio: bool = field(default=True, metadata={"help": "Pad audio to max size"})
+    random_crop: bool = field(default=True, metadata={"help": "Random crop audio samples"})
+    normalize: bool = field(default=True, metadata={"help": "Normalize audio samples"})
+
+@dataclass
+class DatasetConfig(FairseqDataclass):
+    num_workers: int = field(default=1, metadata={"help": "Number of workers for data loading"})
+    max_tokens: int = field(default=4000, metadata={"help": "Max tokens in a batch"})
+    skip_invalid_size_inputs_valid_test: bool = field(default=True, metadata={"help": "Skip invalid size inputs"})
+    validate_interval: int = field(default=1, metadata={"help": "Interval for validation"})
+    validate_interval_updates: int = field(default=100, metadata={"help": "Updates interval for validation"})
+
+
+@dataclass
 class HubertConfig(FairseqDataclass):
-    label_rate: float = II("task.label_rate")
+    #label_rate: float = II("task.label_rate")
+    label_rate: float = field(default=50.0, metadata={"help": "Label sample rate"})
 
     extractor_mode: EXTRACTOR_MODE_CHOICES = field(
         default="default",
@@ -351,7 +397,37 @@ class HubertConfig(FairseqDataclass):
             "sampled to this rate"
         },
     )
+    apply_mask: bool = field(
+        default=False, metadata={"help": "apply masking during fine-tuning"}
+    )
+    layerdrop: float = field(
+        default=0.0, metadata={"help": "probability of dropping a layer in wav2vec 2.0"}
+    )
+    freeze_finetune_updates: int = field(
+        default=0, metadata={"help": "dont finetune wav2vec for this many updates"}
+    )
 
+
+
+@dataclass
+class HubertTrainingConfig:
+    common: CommonConfig
+    checkpoint: CheckpointConfig
+    distributed_training: DistributedTrainingConfig
+    task: TaskConfig
+    dataset: DatasetConfig
+    model: HubertConfig
+
+    @classmethod
+    def from_dict(cls, config_dict):
+        return cls(
+            common=CommonConfig(**config_dict['common']),
+            checkpoint=CheckpointConfig(**config_dict['checkpoint']),
+            distributed_training=DistributedTrainingConfig(**config_dict['distributed_training']),
+            task=TaskConfig(**config_dict['task']),
+            dataset=DatasetConfig(**config_dict['dataset']),
+            model=HubertConfig(**config_dict['model'])
+        )
 
 @dataclass
 class Wav2Vec2Config(FairseqDataclass):
@@ -375,7 +451,7 @@ class Wav2Vec2Config(FairseqDataclass):
     encoder_attention_heads: int = field(
         default=12, metadata={"help": "num encoder attention heads"}
     )
-    activation_fn: ChoiceEnum(get_available_activation_fns()) = field(
+    activation_fn: ChoiceEnum(utils.get_available_activation_fns()) = field(
         default="gelu", metadata={"help": "activation function to use"}
     )
     layer_type: LAYER_TYPE_CHOICES = field(

@@ -13,8 +13,8 @@ from transformer_encoder import TransformerEncoder
 from layer_norm import LayerNorm
 from grad_multiply import GradMultiply
 from conv_feature_extraction import ConvFeatureExtractionModel
-from config.dataclass import *
-from utils import compute_mask_indices
+from utils.config import *
+from utils.utils import compute_mask_indices
 
 logger = logging.getLogger(__name__)
 
@@ -26,65 +26,65 @@ class HubertModel(pl.LightningModule):
         super().__init__()
         logger.info(f"HubertModel Config: {cfg}")
 
-        feature_enc_layers = eval(cfg.conv_feature_layers)  # noqa
+        feature_enc_layers = eval(cfg.model.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
 
         self.feature_extractor = ConvFeatureExtractionModel(
             conv_layers=feature_enc_layers,
             dropout=0.0,
-            mode=cfg.extractor_mode,
-            conv_bias=cfg.conv_bias,
+            mode=cfg.model.extractor_mode,
+            conv_bias=cfg.model.conv_bias,
         )
         feature_ds_rate = np.prod([s for _, _, s in feature_enc_layers])
-        self.feat2tar_ratio = cfg.label_rate * feature_ds_rate / cfg.sample_rate
+        self.feat2tar_ratio = cfg.model.label_rate * feature_ds_rate / cfg.task.sample_rate
 
         self.post_extract_proj = (
-            nn.Linear(self.embed, cfg.encoder_embed_dim)
-            if self.embed != cfg.encoder_embed_dim
+            nn.Linear(self.embed, cfg.model.encoder_embed_dim)
+            if self.embed != cfg.model.encoder_embed_dim
             else None
         )
 
-        self.mask_prob = cfg.mask_prob
-        self.mask_selection = cfg.mask_selection
-        self.mask_other = cfg.mask_other
-        self.mask_length = cfg.mask_length
-        self.no_mask_overlap = cfg.no_mask_overlap
-        self.mask_min_space = cfg.mask_min_space
+        self.mask_prob = cfg.model.mask_prob
+        self.mask_selection = cfg.model.mask_selection
+        self.mask_other = cfg.model.mask_other
+        self.mask_length = cfg.model.mask_length
+        self.no_mask_overlap = cfg.model.no_mask_overlap
+        self.mask_min_space = cfg.model.mask_min_space
 
-        self.mask_channel_prob = cfg.mask_channel_prob
-        self.mask_channel_selection = cfg.mask_channel_selection
-        self.mask_channel_other = cfg.mask_channel_other
-        self.mask_channel_length = cfg.mask_channel_length
-        self.no_mask_channel_overlap = cfg.no_mask_channel_overlap
-        self.mask_channel_min_space = cfg.mask_channel_min_space
+        self.mask_channel_prob = cfg.model.mask_channel_prob
+        self.mask_channel_selection = cfg.model.mask_channel_selection
+        self.mask_channel_other = cfg.model.mask_channel_other
+        self.mask_channel_length = cfg.model.mask_channel_length
+        self.no_mask_channel_overlap = cfg.model.no_mask_channel_overlap
+        self.mask_channel_min_space = cfg.model.mask_channel_min_space
 
-        self.dropout_input = nn.Dropout(cfg.dropout_input)
-        self.dropout_features = nn.Dropout(cfg.dropout_features)
+        self.dropout_input = nn.Dropout(cfg.model.dropout_input)
+        self.dropout_features = nn.Dropout(cfg.model.dropout_features)
 
-        self.feature_grad_mult = cfg.feature_grad_mult
-        self.logit_temp = cfg.logit_temp
-        self.skip_masked = cfg.skip_masked
-        self.skip_nomask = cfg.skip_nomask
+        self.feature_grad_mult = cfg.model.feature_grad_mult
+        self.logit_temp = cfg.model.logit_temp
+        self.skip_masked = cfg.model.skip_masked
+        self.skip_nomask = cfg.model.skip_nomask
 
-        final_dim = cfg.final_dim if cfg.final_dim > 0 else cfg.encoder_embed_dim
+        final_dim = cfg.model.final_dim if cfg.model.final_dim > 0 else cfg.model.encoder_embed_dim
 
-        self.mask_emb = nn.Parameter(torch.FloatTensor(cfg.encoder_embed_dim).uniform_())
+        self.mask_emb = nn.Parameter(torch.FloatTensor(cfg.model.encoder_embed_dim).uniform_())
 
         self.encoder = TransformerEncoder(cfg)
         self.layer_norm = LayerNorm(self.embed)
 
         self.target_glu = None
-        if cfg.target_glu:
+        if cfg.model.target_glu:
             self.target_glu = nn.Sequential(
                 nn.Linear(final_dim, final_dim * 2), nn.GLU()
             )
 
-        self.untie_final_proj = cfg.untie_final_proj
+        self.untie_final_proj = cfg.model.untie_final_proj
         if self.untie_final_proj:
             #self.final_proj = nn.Linear(cfg.encoder_embed_dim, final_dim * len(dictionaries))
-            self.final_proj = nn.Linear(cfg.encoder_embed_dim, final_dim)
+            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim)
         else:
-            self.final_proj = nn.Linear(cfg.encoder_embed_dim, final_dim)
+            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim)
 
         # modules below are not needed during fine-tuning
         """
@@ -331,6 +331,7 @@ class HubertModel(pl.LightningModule):
         self.final_proj = None
 
 if __name__ == "__main__":
+    cfg = HubertConfig()
     seed_everything(42)
 
     # Adjust batch depending on the available memory on your machine.

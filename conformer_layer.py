@@ -7,7 +7,7 @@
 from typing import Optional
 import torch
 
-from utils import get_activation_fn
+from utils.utils import get_activation_fn
 from layer_norm import LayerNorm
 from attention import MultiheadAttention
 from espnet_attention import ESPNETMultiHeadedAttention, RotaryPositionMultiHeadedAttention, RelPositionMultiHeadedAttention

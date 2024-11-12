@@ -10,9 +10,9 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import Parameter
-from .dropout import FairseqDropout
+from dropout import FairseqDropout
 import utils as utils
-from .quant import quant_noise
+from quant import quant_noise
 
 try:
     from xformers.components.attention import build_attention
