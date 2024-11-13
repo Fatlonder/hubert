@@ -180,11 +180,7 @@ class MultiheadAttention(nn.Module):
         if self.bias_v is not None:
             nn.init.xavier_normal_(self.bias_v)
 
-    def _pad_masks(
-        self,
-        key_padding_mask: Optional[Tensor],
-        attn_mask: Optional[Tensor],
-    ) -> Tuple[Optional[Tensor], Optional[Tensor]]:
+    def _pad_masks(self, key_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor],) -> Tuple[Optional[Tensor], Optional[Tensor]]:
         if attn_mask is not None:
             shape = attn_mask.size()[:-1] + torch.Size([1])
             attn_mask = torch.cat([attn_mask, attn_mask.new_zeros(shape)], dim=-1)

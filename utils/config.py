@@ -415,8 +415,6 @@ class HubertConfig(FairseqDataclass):
     )
 
 
-
-
 @dataclass
 class HubertTrainingConfig:
     common: CommonConfig
