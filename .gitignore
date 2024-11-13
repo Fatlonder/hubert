@@ -1,0 +1,8 @@
+__pycache__/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+.vscode
+.DS_Store
