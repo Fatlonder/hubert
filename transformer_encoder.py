@@ -5,12 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from attention import MultiheadAttention
-from utils import *
 from layer_norm import LayerNorm
 from conformer_layer import ConformerWav2Vec2EncoderLayer
 from transpose_last import TransposeLast
 from same_pad import SamePad
-from utils.config import Wav2Vec2Config
+from utils.config import HubertConfig
+from utils.utils import *
 from checkpoint_wrapper import * 
 
 
@@ -188,8 +188,8 @@ class TransformerSentenceEncoderWithAdapterLayer(TransformerSentenceEncoderLayer
 
 class TransformerEncoder(nn.Module):
     
-    def build_encoder_layer(self, args: Wav2Vec2Config, **kwargs):
-        if args.layer_type == "transformer":
+    def build_encoder_layer(self, args: HubertConfig, **kwargs):
+        if args.model.layer_type == "transformer":
             layer = TransformerSentenceEncoderLayer(
                 embedding_dim=self.embedding_dim,
                 ffn_embedding_dim=args.encoder_ffn_embed_dim,
@@ -200,7 +200,7 @@ class TransformerEncoder(nn.Module):
                 activation_fn=args.activation_fn,
                 layer_norm_first=args.layer_norm_first,
             )
-        elif args.layer_type == "conformer":
+        elif args.model.layer_type == "conformer":
             layer = ConformerWav2Vec2EncoderLayer(
                 embed_dim=self.embedding_dim,
                 ffn_embed_dim=args.encoder_ffn_embed_dim,
@@ -212,7 +212,7 @@ class TransformerEncoder(nn.Module):
                 use_fp16=args.fp16,
                 pos_enc_type="abs",
             )
-        elif args.layer_type == "trf_adp":
+        elif args.model.layer_type == "trf_adp":
             use_adp = False
             if args.adp_trf_idx == "all":
                 use_adp = True
@@ -247,21 +247,21 @@ class TransformerEncoder(nn.Module):
                 )
 
         #layer = fsdp_wrap(layer)
-        if args.checkpoint_activations:
+        if args.model.checkpoint_activations:
             layer = checkpoint_wrapper(layer)
         return layer
 
-    def __init__(self, args: Wav2Vec2Config, skip_pos_conv: bool = False, override_encoder_layer: int = None):
+    def __init__(self, args: HubertConfig, skip_pos_conv: bool = False, override_encoder_layer: int = None):
         super().__init__()
 
-        self.dropout = args.dropout
-        self.embedding_dim = args.encoder_embed_dim
-        self.required_seq_len_multiple = args.required_seq_len_multiple
+        self.dropout = args.model.dropout
+        self.embedding_dim = args.model.encoder_embed_dim
+        self.required_seq_len_multiple = args.model.required_seq_len_multiple
 
-        pos_conv_depth = getattr(args, "pos_conv_depth", 1)
+        pos_conv_depth = getattr(args.model, "pos_conv_depth", 1)
         if pos_conv_depth > 1:
-            num_layers = args.pos_conv_depth
-            k = max(3, args.conv_pos // num_layers)
+            num_layers = args.model.pos_conv_depth
+            k = max(3, args.model.conv_pos // num_layers)
 
             def make_conv_block(e, k, g, l):
                 return nn.Sequential(
@@ -285,31 +285,31 @@ class TransformerEncoder(nn.Module):
                 )
 
             self.pos_conv = make_conv_block(
-                self.embedding_dim, k, args.conv_pos_groups, num_layers
+                self.embedding_dim, k, args.model.conv_pos_groups, num_layers
             )
         elif skip_pos_conv:
             self.pos_conv = None
         else:
             self.pos_conv = make_conv_pos(
                 self.embedding_dim,
-                args.conv_pos,
-                args.conv_pos_groups,
-                is_batch_norm=args.conv_pos_batch_norm
-                if hasattr(args, "conv_pos_batch_norm")
+                args.model.conv_pos,
+                args.model.conv_pos_groups,
+                is_batch_norm=args.model.conv_pos_batch_norm
+                if hasattr(args.model, "conv_pos_batch_norm")
                 else False,
             )
 
         if override_encoder_layer is None:
-            encoder_layers = args.encoder_layers
+            encoder_layers = args.model.encoder_layers
         else:
             encoder_layers = override_encoder_layer
 
         self.layers = nn.ModuleList(
             [self.build_encoder_layer(args, layer_idx=ii) for ii in range(encoder_layers)]
         )
-        self.layer_norm_first = args.layer_norm_first
+        self.layer_norm_first = args.model.layer_norm_first
         self.layer_norm = LayerNorm(self.embedding_dim)
-        self.layerdrop = args.encoder_layerdrop
+        self.layerdrop = args.model.encoder_layerdrop
 
         self.apply(init_bert_params)
 

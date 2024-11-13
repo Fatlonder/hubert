@@ -94,3 +94,12 @@ model:
   logit_temp: 0.1
   encoder_embed_dim: 768
   target_glu: false
+  required_seq_len_multiple: 2
+  pos_conv_depth: 5
+  conv_pos: 95
+  conv_pos_groups: 16
+  conv_pos_batch_norm: false
+  encoder_layers: 12
+  layer_norm_first: false
+  layer_type: 'transformer'
+  checkpoint_activations: false
