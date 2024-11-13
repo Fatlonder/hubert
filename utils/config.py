@@ -406,6 +406,14 @@ class HubertConfig(FairseqDataclass):
     freeze_finetune_updates: int = field(
         default=0, metadata={"help": "dont finetune wav2vec for this many updates"}
     )
+    pos_conv_depth: int = field(
+        default=1,
+        metadata={"help": "depth of positional encoder network"},
+    )
+    encoder_ffn_embed_dim: int = field(
+        default=3072, metadata={"help": "encoder embedding dimension for FFN"}
+    )
+
 
 
 

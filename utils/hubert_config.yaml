@@ -103,3 +103,6 @@ model:
   layer_norm_first: false
   layer_type: 'transformer'
   checkpoint_activations: false
+  encoder_ffn_embed_dim: 3072
+  encoder_attention_heads: 12
+  activation_fn: gelu

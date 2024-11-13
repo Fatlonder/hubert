@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.nn import Parameter
 from dropout import FairseqDropout
-import utils as utils
+import utils.utils as utils
 from quant import quant_noise
 
 try:
@@ -89,7 +89,7 @@ class MultiheadAttention(nn.Module):
             int
         ] = 16,  # This should be part of the config
     ):
-        super().__init__(dictionary)
+        super().__init__()
 
         xformers_att_config = utils.eval_str_dict(xformers_att_config)
         self.use_xformers = xformers_att_config is not None
@@ -158,7 +158,7 @@ class MultiheadAttention(nn.Module):
 
         self.onnx_trace = False
         self.skip_embed_dim_check = False
-        self.init_incremental_state()
+        #self.init_incremental_state()
 
     def reset_parameters(self):
         if self.qkv_same_dim:

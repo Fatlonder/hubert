@@ -39,13 +39,8 @@ class TransformerSentenceEncoderLayer(nn.Module):
         self.activation_dropout = activation_dropout
 
         # Initialize blocks
-        self.activation_fn = utils.get_activation_fn(activation_fn)
-        self.self_attn = MultiheadAttention(
-            self.embedding_dim,
-            num_attention_heads,
-            dropout=attention_dropout,
-            self_attention=True,
-        )
+        self.activation_fn = get_activation_fn(activation_fn)
+        self.self_attn = MultiheadAttention(self.embedding_dim, num_attention_heads, dropout=attention_dropout,self_attention=True,)
 
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(self.activation_dropout)
@@ -192,13 +187,13 @@ class TransformerEncoder(nn.Module):
         if args.model.layer_type == "transformer":
             layer = TransformerSentenceEncoderLayer(
                 embedding_dim=self.embedding_dim,
-                ffn_embedding_dim=args.encoder_ffn_embed_dim,
-                num_attention_heads=args.encoder_attention_heads,
+                ffn_embedding_dim=args.model.encoder_ffn_embed_dim,
+                num_attention_heads=args.model.encoder_attention_heads,
                 dropout=self.dropout,
-                attention_dropout=args.attention_dropout,
-                activation_dropout=args.activation_dropout,
-                activation_fn=args.activation_fn,
-                layer_norm_first=args.layer_norm_first,
+                attention_dropout=args.model.attention_dropout,
+                activation_dropout=args.model.activation_dropout,
+                activation_fn=args.model.activation_fn,
+                layer_norm_first=args.model.layer_norm_first,
             )
         elif args.model.layer_type == "conformer":
             layer = ConformerWav2Vec2EncoderLayer(
