@@ -202,7 +202,7 @@ class HubertDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         wav = self.get_audio(index)
         labels = self.get_labels(index)[0] # what is the use of self.num_labels
-        labels = list(map(int, labels.split()))
+        labels = torch.Tensor(list(map(int, labels.split())))
         return {"id": index, "source": wav, "label_list": labels}
 
     def __len__(self):
@@ -302,17 +302,15 @@ class HubertDataset(torch.utils.data.Dataset):
 
     def collater_label(self, targets_by_label, audio_size, audio_starts):
         targets_list, lengths_list, ntokens_list = [], [], []
-        itr = zip(targets_by_label, self.label_rates, self.pad_list)
-        for targets, label_rate, pad in itr:
-            if label_rate == -1.0:
-                targets, lengths, ntokens = self.collater_seq_label(targets, pad)
-            else:
-                targets, lengths, ntokens = self.collater_frm_label(
-                    targets, audio_size, audio_starts, label_rate, pad
-                )
-            targets_list.append(targets)
-            lengths_list.append(lengths)
-            ntokens_list.append(ntokens)
+        if self.label_rates[0] == -1.0:
+            targets, lengths, ntokens = self.collater_seq_label(targets_by_label, self.pad_list[0])
+        else:
+            targets, lengths, ntokens = self.collater_frm_label(targets_by_label, audio_size, audio_starts, self.label_rates[0], self.pad_list[0])
+        
+        targets_list.append(targets)
+        lengths_list.append(lengths)
+        ntokens_list.append(ntokens)
+
         return targets_list, lengths_list, ntokens_list
 
     def num_tokens(self, index):
