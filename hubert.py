@@ -4,10 +4,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset, RandomSampler
-
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer, seed_everything
 
 from transformer_encoder import TransformerEncoder
 from layer_norm import LayerNorm
@@ -329,55 +326,3 @@ class HubertModel(pl.LightningModule):
     def remove_pretraining_modules(self):
         self.target_glu = None
         self.final_proj = None
-
-if __name__ == "__main__":
-    cfg = HubertConfig()
-    seed_everything(42)
-
-    # Adjust batch depending on the available memory on your machine.
-    # You can also use reversible layers to save memory
-    REF_BATCH = 512
-    BATCH = 128
-
-    WORKERS = 4
-    EPOCHS = 1
-    BLOCK = 128
-    WARMUP = 20
-
-    if not os.path.exists("input.txt"):
-        os.system(
-            "wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
-        )
-
-    text = open("input.txt", "r").read()
-    train_dataset = CharDataset(
-        text, BLOCK
-    )  # one line of poem is roughly 50 characters
-    random_sampler = RandomSampler(train_dataset)
-    train_loader = DataLoader(
-        train_dataset,
-        sampler=random_sampler,
-        batch_size=BATCH,
-        num_workers=WORKERS,
-        pin_memory=True,
-    )
-
-    model = HubertModel(
-        vocab_size=train_dataset.vocab_size,
-        block_size=train_dataset.block_size,
-        attention="scaled_dot_product",
-        warmup_tokens=REF_BATCH * WARMUP,
-        final_tokens=EPOCHS * len(train_dataset) * BLOCK,
-    )
-    print(model)
-
-    trainer = Trainer(
-        gpusdevices=1,
-        accelerator="gpu",
-        max_epochs=EPOCHS,
-        precision=16,
-        log_every_n_steps=1,
-        accumulate_grad_batches=REF_BATCH // BATCH,
-    )
-
-    trainer.fit(model, train_loader)
