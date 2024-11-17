@@ -197,11 +197,12 @@ class HubertDataset(torch.utils.data.Dataset):
         return label
 
     def get_labels(self, index):
-        return [int(self.get_label(index, i)) for i in range(self.num_labels)]
+        return [self.get_label(index, i) for i in range(self.num_labels)]
 
     def __getitem__(self, index):
         wav = self.get_audio(index)
         labels = self.get_labels(index)[0] # what is the use of self.num_labels
+        labels = list(map(int, labels.split()))
         return {"id": index, "source": wav, "label_list": labels}
 
     def __len__(self):
