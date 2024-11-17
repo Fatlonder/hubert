@@ -28,7 +28,7 @@ def load_audio(manifest_path, max_keep, min_keep):
         for ind, line in enumerate(f):
             items = line.strip().split("\t")
             assert len(items) == 2, line
-            sz = int(items[1])
+            sz = int(float(items[1]))
             if min_keep is not None and sz < min_keep:
                 n_short += 1
             elif max_keep is not None and sz > max_keep:
@@ -135,7 +135,7 @@ class HubertDataset(torch.utils.data.Dataset):
         self.shuffle = shuffle
         self.random_crop = random_crop
 
-        self.num_labels = len(label_paths)
+        self.num_labels = len(label_paths) # There is only one KNN file. This should be one and completly removed.
         self.pad_list = pad_list
         self.eos_list = eos_list
         self.label_processors = label_processors
@@ -197,11 +197,11 @@ class HubertDataset(torch.utils.data.Dataset):
         return label
 
     def get_labels(self, index):
-        return [self.get_label(index, i) for i in range(self.num_labels)]
+        return [int(self.get_label(index, i)) for i in range(self.num_labels)]
 
     def __getitem__(self, index):
         wav = self.get_audio(index)
-        labels = self.get_labels(index)
+        labels = self.get_labels(index)[0] # what is the use of self.num_labels
         return {"id": index, "source": wav, "label_list": labels}
 
     def __len__(self):
@@ -234,7 +234,8 @@ class HubertDataset(torch.utils.data.Dataset):
             audio_size = min(min(audio_sizes), self.max_sample_size)
         collated_audios, padding_mask, audio_starts = self.collater_audio(audios, audio_size)
 
-        targets_by_label = [[s["label_list"][i] for s in samples] for i in range(self.num_labels)]
+        #targets_by_label = [[s["label_list"][i] for s in samples] for i in range(self.num_labels)]
+        targets_by_label = [s["label_list"] for s in samples]
         targets_list, lengths_list, ntokens_list = self.collater_label(targets_by_label, audio_size, audio_starts)
 
         net_input = {"source": collated_audios, "padding_mask": padding_mask}
