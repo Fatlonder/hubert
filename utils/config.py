@@ -135,6 +135,22 @@ class FairseqDataclass:
             return config
 
 @dataclass
+class FairseqAdamConfig(FairseqDataclass):
+    adam_betas: Tuple[float, float] = field(
+        default=(0.9, 0.999), metadata={"help": "betas for Adam optimizer"}
+    )
+    adam_eps: float = field(
+        default=1e-8, metadata={"help": "epsilon for Adam optimizer"}
+    )
+    weight_decay: float = field(default=0.0, metadata={"help": "weight decay"})
+    fp16_adam_stats: bool = field(
+        default=False, metadata={"help": "use FP16 stats (with automatic scaling)"}
+    )
+    lr: List[float] =  field(default=(0.0005), metadata={"help": "learning rate for Adam optimizer"})
+    max_update: float = field(default=400000, metadata={"help": "Max update"})
+    clip_norm: float = field(default=10.0, metadata={"help": "clip_norm"})
+
+@dataclass
 class CommonConfig(FairseqDataclass):
     fp16: bool = field(default=False, metadata={"help": "Use FP16 precision"})
     log_format: str = field(default="simple", metadata={"help": "Format for logging"})
@@ -423,6 +439,7 @@ class HubertTrainingConfig:
     task: TaskConfig
     dataset: DatasetConfig
     model: HubertConfig
+    optimizer: FairseqAdamConfig
 
     @classmethod
     def from_dict(cls, config_dict):
@@ -432,5 +449,6 @@ class HubertTrainingConfig:
             distributed_training=DistributedTrainingConfig(**config_dict['distributed_training']),
             task=TaskConfig(**config_dict['task']),
             dataset=DatasetConfig(**config_dict['dataset']),
-            model=HubertConfig(**config_dict['model'])
+            model=HubertConfig(**config_dict['model']),
+            optimizer=FairseqAdamConfig(**config_dict['optimizer'])
         )

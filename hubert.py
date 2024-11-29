@@ -3,7 +3,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
-import torch.nn as nn
+import torch.nn.functional as F
+from torch import optim, nn
 import pytorch_lightning as pl
 
 from transformer_encoder import TransformerEncoder
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class HubertModel(pl.LightningModule):
     def __init__(
         self,
-        cfg: HubertConfig,
+        cfg: HubertTrainingConfig,
     ) -> None:
         super().__init__()
         logger.info(f"HubertModel Config: {cfg}")
@@ -326,3 +327,106 @@ class HubertModel(pl.LightningModule):
     def remove_pretraining_modules(self):
         self.target_glu = None
         self.final_proj = None
+
+    def training_step(self, batch, batch_idx):
+        """Compute the loss for the given sample.
+        Returns a tuple with three elements:
+        1) the loss
+        2) the sample size, which is used as the denominator for the gradient
+        3) logging outputs to display while training
+        """
+        reduce, log_pred =True, False # defaults.
+        x, _ = batch
+        sample = x.view(x.size(0), -1)
+        net_output = self.forward(target_list=sample["target_list"], **sample["net_input"])
+        #net_output = model(target_list=sample["target_list"], **sample["net_input"])
+        loss = 0.0
+        sample_size = 0
+        logging_output = {}
+        reduction = "sum" if reduce else "none"
+
+        loss_m_list = []
+        logp_m_list = self.get_logits(net_output, True)
+        targ_m_list = self.get_targets(net_output, True)
+        assert self.pred_masked_weight == 0 or len(logp_m_list) > 0
+        for i, (logp_m, targ_m) in enumerate(zip(logp_m_list, targ_m_list)):
+            loss_m = F.cross_entropy(logp_m, targ_m, reduction=reduction)
+            loss_m_list.append(loss_m)
+            logging_output[f"loss_m_{i}"] = loss_m.detach().item()
+        if self.pred_masked_weight > 0:
+            loss += self.pred_masked_weight * sum(loss_m_list)
+            sample_size += targ_m_list[0].numel()
+
+        loss_u_list = []
+        logp_u_list = self.get_logits(net_output, False)
+        targ_u_list = self.get_targets(net_output, False)
+        assert self.pred_nomask_weight == 0 or len(logp_u_list) > 0
+        for i, (logp_u, targ_u) in enumerate(zip(logp_u_list, targ_u_list)):
+            loss_u = F.cross_entropy(logp_u, targ_u, reduction=reduction)
+            loss_u_list.append(loss_u)
+            logging_output[f"loss_u_{i}"] = loss_u.detach().item()
+        if self.pred_nomask_weight > 0:
+            loss += self.pred_nomask_weight * sum(loss_u_list)
+            sample_size += targ_u_list[0].numel()
+
+        if self.loss_weights is not None:
+            assert hasattr(self, "get_extra_losses")
+            extra_losses, names = self.get_extra_losses(net_output)
+            if torch.is_tensor(extra_losses):
+                extra_losses = [extra_losses]
+                names = [names]
+            if len(self.loss_weights) == 1 and len(extra_losses) != 1:
+                self.loss_weights = [self.loss_weights[0]] * len(extra_losses)
+            assert len(extra_losses) == len(
+                self.loss_weights
+            ), f"{len(extra_losses)}, {len(self.loss_weights)}"
+            for p, n, coef in zip(extra_losses, names, self.loss_weights):
+                if coef != 0 and p is not None:
+                    p = coef * p.float() * sample_size
+                    loss += p
+                    logging_output[f"loss_{n}"] = p.item()
+
+        logging_output = {
+            "loss": loss.item() if reduce else loss,
+            "ntokens": sample_size,
+            "nsentences": sample["id"].numel(),
+            "sample_size": sample_size,
+            **logging_output,
+        }
+
+        for lk in self.log_keys:
+            if lk in net_output:
+                logging_output[lk] = float((net_output[lk]))
+
+        def compute_correct(logits):
+            if logits.numel() == 0:
+                return 0, 0
+            else:
+                assert logits.dim() > 1, logits.shape
+                max = logits.argmax(-1) == 0
+                min = logits.argmin(-1) == 0
+                both = max & min
+                corr = max.long().sum().item() - both.long().sum().item()
+                count = max.numel()
+                return corr, count
+
+        with torch.no_grad():
+            for i, logp_m in enumerate(logp_m_list):
+                corr_m, count_m = compute_correct(logp_m)
+                logging_output[f"correct_m_{i}"] = corr_m
+                logging_output[f"count_m_{i}"] = count_m
+
+            for i, logp_u in enumerate(logp_u_list):
+                corr_u, count_u = compute_correct(logp_u)
+                logging_output[f"correct_u_{i}"] = corr_u
+                logging_output[f"count_u_{i}"] = count_u
+
+        # Logging to TensorBoard (if installed) by default
+        self.log(f"train_loss {loss}, sample_size: {sample_size}, logging_output: {logging_output}")
+        return loss
+    
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(), eps=self.cfg.optimizer.adam_eps,
+                                lr=self.cfg.optimizer.lr[0], weight_decay=self.cfg.optmizer.weight_decay,
+                                betas=self.cfg.optmizer.adam_betas)
+        return optimizer
