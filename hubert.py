@@ -428,5 +428,5 @@ class HubertModel(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), eps=self.cfg.optimizer.adam_eps,
                                 lr=self.cfg.optimizer.lr[0], weight_decay=self.cfg.optmizer.weight_decay,
-                                betas=self.cfg.optmizer.adam_betas)
+                                betas=tuple(self.cfg.optmizer.adam_betas))
         return optimizer
