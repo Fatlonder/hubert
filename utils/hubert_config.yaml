@@ -22,7 +22,7 @@ distributed_training:
 task:
   _name: hubert_pretraining
   label_dir: /labels
-  labels: ???
+  labels: "['km']"
   label_rate: ${model.label_rate}
   sample_rate: 16000
   max_sample_size: 250000

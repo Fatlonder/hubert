@@ -23,6 +23,7 @@ class HubertModel(pl.LightningModule):
     ) -> None:
         super().__init__()
         logger.info(f"HubertModel Config: {cfg}")
+        self.cfg = cfg
 
         feature_enc_layers = eval(cfg.model.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
@@ -163,11 +164,12 @@ class HubertModel(pl.LightningModule):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Trim features to ensure labels exist and then get aligned labels
         feat_tsz = features.size(2)
-        targ_tsz = min([t.size(1) for t in target_list])
+        targ_tsz = min([t.size(0) for t in target_list])
         if self.feat2tar_ratio * feat_tsz > targ_tsz:
             feat_tsz = int(targ_tsz / self.feat2tar_ratio)
             features = features[..., :feat_tsz]
-        target_inds = torch.arange(feat_tsz).float() * self.feat2tar_ratio
+        target_inds = (torch.arange(feat_tsz).float() * self.feat2tar_ratio).long()
+        target_inds = torch.clamp(target_inds, max=targ_tsz - 1)
         target_list = [t[:, target_inds.long()] for t in target_list]
         return features, target_list
 
@@ -336,9 +338,8 @@ class HubertModel(pl.LightningModule):
         3) logging outputs to display while training
         """
         reduce, log_pred =True, False # defaults.
-        x, _ = batch
-        sample = x.view(x.size(0), -1)
-        net_output = self.forward(target_list=sample["target_list"], **sample["net_input"])
+        sample = batch
+        net_output = self.forward(target_list=sample["target"], **sample["net_input"])
         #net_output = model(target_list=sample["target_list"], **sample["net_input"])
         loss = 0.0
         sample_size = 0
@@ -426,7 +427,7 @@ class HubertModel(pl.LightningModule):
         return loss
     
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), eps=self.cfg.optimizer.adam_eps,
-                                lr=self.cfg.optimizer.lr[0], weight_decay=self.cfg.optmizer.weight_decay,
-                                betas=tuple(self.cfg.optmizer.adam_betas))
+        optimizer = optim.AdamW(self.parameters(), eps=float(self.cfg.optimizer.adam_eps),
+                                lr=self.cfg.optimizer.lr[0], weight_decay=self.cfg.optimizer.weight_decay,
+                                betas=tuple(self.cfg.optimizer.adam_betas))
         return optimizer
