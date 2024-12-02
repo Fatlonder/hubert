@@ -27,6 +27,7 @@ class HubertModel(pl.LightningModule):
 
         feature_enc_layers = eval(cfg.model.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
+        self.num_classes = cfg.model.num_classes
 
         self.feature_extractor = ConvFeatureExtractionModel(
             conv_layers=feature_enc_layers,
@@ -80,20 +81,16 @@ class HubertModel(pl.LightningModule):
 
         self.untie_final_proj = cfg.model.untie_final_proj
         if self.untie_final_proj:
-            #self.final_proj = nn.Linear(cfg.encoder_embed_dim, final_dim * len(dictionaries))
-            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim)
+            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim * self.num_classes)
         else:
             self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim)
 
         # modules below are not needed during fine-tuning
-        """
-        if any([d is None for d in dictionaries]):
+        if not self.cfg.model.num_classes:
             logger.info("cannot find dictionary. assume will be used for fine-tuning")
         else:
-            #self.num_classes = [len(d) for d in dictionaries]
-            #self.label_embs_concat = nn.Parameter(torch.FloatTensor(sum(self.num_classes), final_dim))
-            #nn.init.uniform_(self.label_embs_concat)
-        """
+            self.label_embs_concat = nn.Parameter(torch.FloatTensor(self.num_classes, final_dim))
+            nn.init.uniform_(self.label_embs_concat)
 
     def apply_mask(self, x, padding_mask, target_list):
         B, T, C = x.shape
@@ -160,18 +157,18 @@ class HubertModel(pl.LightningModule):
     def forward_targets(
         self,
         features: torch.Tensor,
-        target_list: List[torch.Tensor],
+        target: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Trim features to ensure labels exist and then get aligned labels
         feat_tsz = features.size(2)
-        targ_tsz = min([t.size(0) for t in target_list])
+        targ_tsz = min([t.size(0) for t in target])
         if self.feat2tar_ratio * feat_tsz > targ_tsz:
             feat_tsz = int(targ_tsz / self.feat2tar_ratio)
             features = features[..., :feat_tsz]
         target_inds = (torch.arange(feat_tsz).float() * self.feat2tar_ratio).long()
         target_inds = torch.clamp(target_inds, max=targ_tsz - 1)
-        target_list = [t[:, target_inds.long()] for t in target_list]
-        return features, target_list
+        target = target[:, target_inds.long()]
+        return features, target
 
     def forward_padding_mask(
         self,
@@ -188,7 +185,7 @@ class HubertModel(pl.LightningModule):
     def forward(
         self,
         source: torch.Tensor,
-        target_list: Optional[List[torch.Tensor]] = None,
+        target: Optional[torch.Tensor] = None,
         padding_mask: Optional[torch.Tensor] = None,
         mask: bool = True,
         features_only: bool = False,
@@ -196,8 +193,8 @@ class HubertModel(pl.LightningModule):
     ) -> Dict[str, torch.Tensor]:
         """output layer is 1-based"""
         features = self.forward_features(source)
-        if target_list is not None:
-            features, target_list = self.forward_targets(features, target_list)
+        if target is not None:
+            features, target = self.forward_targets(features, target)
 
         features_pen = features.float().pow(2).mean()
 
@@ -215,7 +212,7 @@ class HubertModel(pl.LightningModule):
         unmasked_features = self.dropout_features(unmasked_features)
 
         if mask:
-            x, mask_indices = self.apply_mask(features, padding_mask, target_list)
+            x, mask_indices = self.apply_mask(features, padding_mask, target)
         else:
             x = features
             mask_indices = None
@@ -252,30 +249,28 @@ class HubertModel(pl.LightningModule):
             masked_indices = torch.logical_and(~padding_mask, mask_indices)
             proj_x_m = self.final_proj(x[masked_indices])
             if self.untie_final_proj:
-                proj_x_m_list = proj_x_m.chunk(len(target_list), dim=-1)
+                proj_x_m_list = proj_x_m.chunk(len(target), dim=-1)
             else:
-                proj_x_m_list = [proj_x_m for _ in range(len(target_list))]
-            logit_m_list = [
-                compute_pred(proj_x_m, t[masked_indices], label_embs_list[i])
-                for i, (proj_x_m, t) in enumerate(zip(proj_x_m_list, target_list))
-            ]
+                proj_x_m_list = [proj_x_m for _ in range(len(target))]
+            logit_m_list = [compute_pred(proj_x_m, t[masked_indices], label_embs_list[i]) 
+                            for i, (proj_x_m, t) in enumerate(zip(proj_x_m_list, target))]
         else:
-            logit_m_list = [None for _ in target_list]
+            logit_m_list = [None for _ in target]
 
         if not self.skip_nomask:
             nomask_indices = torch.logical_and(~padding_mask, ~mask_indices)
             proj_x_u = self.final_proj(x[nomask_indices])
             if self.untie_final_proj:
-                proj_x_u_list = proj_x_u.chunk(len(target_list), dim=-1)
+                proj_x_u_list = proj_x_u.chunk(len(target), dim=-1)
             else:
-                proj_x_u_list = [proj_x_u for _ in range(len(target_list))]
+                proj_x_u_list = [proj_x_u for _ in range(len(target))]
 
             logit_u_list = [
                 compute_pred(proj_x_u, t[nomask_indices], label_embs_list[i])
-                for i, (proj_x_u, t) in enumerate(zip(proj_x_u_list, target_list))
+                for i, (proj_x_u, t) in enumerate(zip(proj_x_u_list, target))
             ]
         else:
-            logit_u_list = [None for _ in target_list]
+            logit_u_list = [None for _ in target]
 
         result = {
             "logit_m_list": logit_m_list,
@@ -340,7 +335,6 @@ class HubertModel(pl.LightningModule):
         reduce, log_pred =True, False # defaults.
         sample = batch
         net_output = self.forward(target_list=sample["target"], **sample["net_input"])
-        #net_output = model(target_list=sample["target_list"], **sample["net_input"])
         loss = 0.0
         sample_size = 0
         logging_output = {}

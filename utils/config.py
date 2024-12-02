@@ -260,6 +260,10 @@ class HubertConfig(FairseqDataclass):
             "dimensions. set to encoder_embed_dim is <= 0"
         },
     )
+    num_classes: float = field(
+        default=500,
+        metadata={"help": "Number of classes to partition each input token using KNN or MGE."},
+    )
     untie_final_proj: bool = field(
         default=False,
         metadata={"help": "use separate projection for each target"},
