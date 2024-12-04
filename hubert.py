@@ -52,6 +52,8 @@ class HubertModel(pl.LightningModule):
         self.no_mask_overlap = cfg.model.no_mask_overlap
         self.mask_min_space = cfg.model.mask_min_space
         self.pred_masked_weight = cfg.criterion.pred_masked_weight
+        self.pred_nomask_weight = cfg.criterion.pred_nomask_weight
+        self.loss_weights = cfg.criterion.loss_weights
 
         self.mask_channel_prob = cfg.model.mask_channel_prob
         self.mask_channel_selection = cfg.model.mask_channel_selection
@@ -393,10 +395,6 @@ class HubertModel(pl.LightningModule):
             **logging_output,
         }
 
-        for lk in self.log_keys:
-            if lk in net_output:
-                logging_output[lk] = float((net_output[lk]))
-
         def compute_correct(logits):
             if logits.numel() == 0:
                 return 0, 0
@@ -421,7 +419,8 @@ class HubertModel(pl.LightningModule):
                 logging_output[f"count_u_{i}"] = count_u
 
         # Logging to TensorBoard (if installed) by default
-        self.log(f"train_loss {loss}, sample_size: {sample_size}, logging_output: {logging_output}")
+        #self.log_dict({"train_loss": loss, "sample_size": sample_size})
+        self.log_dict(logging_output)
         return loss
     
     def configure_optimizers(self):

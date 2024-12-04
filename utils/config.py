@@ -462,6 +462,7 @@ class HubertTrainingConfig:
     dataset: DatasetConfig
     model: HubertConfig
     optimizer: FairseqAdamConfig
+    criterion: CriterionConfig
 
     @classmethod
     def from_dict(cls, config_dict):
