@@ -92,7 +92,7 @@ class HubertModel(pl.LightningModule):
         else:
             emb_dim = sum(self.cluster_classes_dim)
             self.label_embs_nn = nn.Parameter(torch.FloatTensor(emb_dim, final_dim))
-            nn.init.uniform_(self.label_embs_concat)
+            nn.init.uniform_(self.label_embs_nn)
 
     def apply_mask(self, x, padding_mask, target_list):
         B, T, C = x.shape
@@ -337,7 +337,7 @@ class HubertModel(pl.LightningModule):
         """
         reduce, log_pred =True, False # defaults.
         sample = batch
-        net_output = self.forward(target_list=sample["target"], **sample["net_input"])
+        net_output = self.forward(target_label=sample["target"], **sample["net_input"])
         loss = 0.0
         sample_size = 0
         logging_output = {}
