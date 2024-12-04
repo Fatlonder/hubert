@@ -194,6 +194,24 @@ class DatasetConfig(FairseqDataclass):
     validate_interval: int = field(default=1, metadata={"help": "Interval for validation"})
     validate_interval_updates: int = field(default=100, metadata={"help": "Updates interval for validation"})
 
+@dataclass
+class CriterionConfig(FairseqDataclass):
+    pred_masked_weight: float = field(
+        default=1.0,
+        metadata={"help": "weight for predictive loss for masked frames"},
+    )
+    pred_nomask_weight: float = field(
+        default=0.0,
+        metadata={"help": "weight for predictive loss for unmasked frames"},
+    )
+    loss_weights: Optional[List[float]] = field(
+        default=None,
+        metadata={"help": "weights for additional loss terms (not first one)"},
+    )
+    log_keys: List[str] = field(
+        default_factory=lambda: [],
+        metadata={"help": "output keys to log"},
+    )
 
 @dataclass
 class HubertConfig(FairseqDataclass):
@@ -454,5 +472,6 @@ class HubertTrainingConfig:
             task=TaskConfig(**config_dict['task']),
             dataset=DatasetConfig(**config_dict['dataset']),
             model=HubertConfig(**config_dict['model']),
-            optimizer=FairseqAdamConfig(**config_dict['optimizer'])
+            optimizer=FairseqAdamConfig(**config_dict['optimizer']),
+            criterion=CriterionConfig(**config_dict['criterion']),
         )

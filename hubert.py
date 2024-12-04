@@ -28,7 +28,7 @@ class HubertModel(pl.LightningModule):
         feature_enc_layers = eval(cfg.model.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
         self.num_cluster_classes = cfg.model.num_classes # When applying multiple clustering algorithms {100, 500}-nn. 
-        self.cluster_classes_dim = [100] # When applying multiple clustering algorithms each has its own dim, e.g., 100-nn. 
+        self.cluster_classes_dim = [500] # When applying multiple clustering algorithms each has its own dim, e.g., 100-nn. 
 
         self.feature_extractor = ConvFeatureExtractionModel(
             conv_layers=feature_enc_layers,
@@ -51,6 +51,7 @@ class HubertModel(pl.LightningModule):
         self.mask_length = cfg.model.mask_length
         self.no_mask_overlap = cfg.model.no_mask_overlap
         self.mask_min_space = cfg.model.mask_min_space
+        self.pred_masked_weight = cfg.criterion.pred_masked_weight
 
         self.mask_channel_prob = cfg.model.mask_channel_prob
         self.mask_channel_selection = cfg.model.mask_channel_selection
@@ -245,7 +246,7 @@ class HubertModel(pl.LightningModule):
             # negs: (Neg, S, D). Negative sample. 
             return self.compute_nce(proj_x, y, negs) # https://www.jmlr.org/papers/volume13/gutmann12a/gutmann12a.pdf
 
-        label_embs_list = self.label_embs_nn.split(self.num_cluster_classes, 0)
+        label_embs_list = self.label_embs_nn.split(self.cluster_classes_dim[0], 0)
 
         if not self.skip_masked:
             masked_indices = torch.logical_and(~padding_mask, mask_indices)
@@ -255,7 +256,7 @@ class HubertModel(pl.LightningModule):
             else:
                 proj_x_m_list = [proj_x_m for _ in range(len(target_label))]
 
-            logit_m_list = [compute_pred(proj_x_m, t[masked_indices], label_embs_list[i]) 
+            logit_m_list = [compute_pred(proj_x_m, t.unsqueeze(0)[masked_indices], label_embs_list[i]) 
                             for i, (proj_x_m, t) in enumerate(zip(proj_x_m_list, target_label))]
         else:
             logit_m_list = [None for _ in target_label]
@@ -269,7 +270,7 @@ class HubertModel(pl.LightningModule):
                 proj_x_u_list = [proj_x_u for _ in range(len(target_label))]
 
             logit_u_list = [
-                compute_pred(proj_x_u, t[nomask_indices], label_embs_list[i])
+                compute_pred(proj_x_u, t.unsqueeze(0)[nomask_indices], label_embs_list[i])
                 for i, (proj_x_u, t) in enumerate(zip(proj_x_u_list, target_label))
             ]
         else:
