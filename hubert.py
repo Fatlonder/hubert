@@ -27,7 +27,8 @@ class HubertModel(pl.LightningModule):
 
         feature_enc_layers = eval(cfg.model.conv_feature_layers)  # noqa
         self.embed = feature_enc_layers[-1][0]
-        self.num_classes = cfg.model.num_classes
+        self.num_cluster_classes = cfg.model.num_classes # When applying multiple clustering algorithms {100, 500}-nn. 
+        self.cluster_classes_dim = [100] # When applying multiple clustering algorithms each has its own dim, e.g., 100-nn. 
 
         self.feature_extractor = ConvFeatureExtractionModel(
             conv_layers=feature_enc_layers,
@@ -81,7 +82,7 @@ class HubertModel(pl.LightningModule):
 
         self.untie_final_proj = cfg.model.untie_final_proj
         if self.untie_final_proj:
-            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim * self.num_classes)
+            self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim * self.num_cluster_classes)
         else:
             self.final_proj = nn.Linear(cfg.model.encoder_embed_dim, final_dim)
 
@@ -89,7 +90,8 @@ class HubertModel(pl.LightningModule):
         if not self.cfg.model.num_classes:
             logger.info("cannot find dictionary. assume will be used for fine-tuning")
         else:
-            self.label_embs_concat = nn.Parameter(torch.FloatTensor(self.num_classes, final_dim))
+            emb_dim = sum(self.cluster_classes_dim)
+            self.label_embs_nn = nn.Parameter(torch.FloatTensor(emb_dim, final_dim))
             nn.init.uniform_(self.label_embs_concat)
 
     def apply_mask(self, x, padding_mask, target_list):
@@ -132,7 +134,7 @@ class HubertModel(pl.LightningModule):
 
         return x, mask_indices
 
-    def compute_nce(self, x, pos, negs):
+    def compute_nce(self, x, pos, negs): # https://www.tensorflow.org/extras/candidate_sampling.pdf
         neg_is_pos = (pos == negs).all(-1)
         pos = pos.unsqueeze(0)
         targets = torch.cat([pos, negs], dim=0)
@@ -185,7 +187,7 @@ class HubertModel(pl.LightningModule):
     def forward(
         self,
         source: torch.Tensor,
-        target: Optional[torch.Tensor] = None,
+        target_label: Optional[List[torch.Tensor]] = None,
         padding_mask: Optional[torch.Tensor] = None,
         mask: bool = True,
         features_only: bool = False,
@@ -193,8 +195,8 @@ class HubertModel(pl.LightningModule):
     ) -> Dict[str, torch.Tensor]:
         """output layer is 1-based"""
         features = self.forward_features(source)
-        if target is not None:
-            features, target = self.forward_targets(features, target)
+        if target_label is not None:
+            features, target_label = self.forward_targets(features, target_label)
 
         features_pen = features.float().pow(2).mean()
 
@@ -212,13 +214,13 @@ class HubertModel(pl.LightningModule):
         unmasked_features = self.dropout_features(unmasked_features)
 
         if mask:
-            x, mask_indices = self.apply_mask(features, padding_mask, target)
+            x, mask_indices = self.apply_mask(features, padding_mask, target_label)
         else:
             x = features
             mask_indices = None
 
         # feature: (B, T, D), float
-        # target: (B, T), long
+        # target_label: List(B, T), long. Allowing to use multiple clustering algorithms
         # x: (B, T, D), float
         # padding_mask: (B, T), bool
         # mask_indices: (B, T), bool
@@ -233,44 +235,45 @@ class HubertModel(pl.LightningModule):
 
         def compute_pred(proj_x, target, label_embs):
             # compute logits for the i-th label set
-            y = torch.index_select(label_embs, 0, target.long())
-            negs = label_embs.unsqueeze(1).expand(-1, proj_x.size(0), -1)
+            y = torch.index_select(label_embs, 0, target.long()) # Extract the c_{e}, i.e. embedding of the target label. 
+            negs = label_embs.unsqueeze(1).expand(-1, proj_x.size(0), -1) # is proj_x.size(0) the batch size or signal lenght S? 
             if self.target_glu:
                 y = self.target_glu(y)
                 negs = self.target_glu(negs)
-            # proj_x: (S, D)
-            # y: (S, D)
-            # negs: (Neg, S, D)
-            return self.compute_nce(proj_x, y, negs)
+            # proj_x: (S, D). Transformer encoder output. 
+            # y: (S, D). Positive sample.
+            # negs: (Neg, S, D). Negative sample. 
+            return self.compute_nce(proj_x, y, negs) # https://www.jmlr.org/papers/volume13/gutmann12a/gutmann12a.pdf
 
-        label_embs_list = self.label_embs_concat.split(self.num_classes, 0)
+        label_embs_list = self.label_embs_nn.split(self.num_cluster_classes, 0)
 
         if not self.skip_masked:
             masked_indices = torch.logical_and(~padding_mask, mask_indices)
             proj_x_m = self.final_proj(x[masked_indices])
             if self.untie_final_proj:
-                proj_x_m_list = proj_x_m.chunk(len(target), dim=-1)
+                proj_x_m_list = proj_x_m.chunk(len(target_label), dim=-1) # If learning for multiple tasks. 
             else:
-                proj_x_m_list = [proj_x_m for _ in range(len(target))]
+                proj_x_m_list = [proj_x_m for _ in range(len(target_label))]
+
             logit_m_list = [compute_pred(proj_x_m, t[masked_indices], label_embs_list[i]) 
-                            for i, (proj_x_m, t) in enumerate(zip(proj_x_m_list, target))]
+                            for i, (proj_x_m, t) in enumerate(zip(proj_x_m_list, target_label))]
         else:
-            logit_m_list = [None for _ in target]
+            logit_m_list = [None for _ in target_label]
 
         if not self.skip_nomask:
             nomask_indices = torch.logical_and(~padding_mask, ~mask_indices)
             proj_x_u = self.final_proj(x[nomask_indices])
             if self.untie_final_proj:
-                proj_x_u_list = proj_x_u.chunk(len(target), dim=-1)
+                proj_x_u_list = proj_x_u.chunk(len(target_label), dim=-1)
             else:
-                proj_x_u_list = [proj_x_u for _ in range(len(target))]
+                proj_x_u_list = [proj_x_u for _ in range(len(target_label))]
 
             logit_u_list = [
                 compute_pred(proj_x_u, t[nomask_indices], label_embs_list[i])
-                for i, (proj_x_u, t) in enumerate(zip(proj_x_u_list, target))
+                for i, (proj_x_u, t) in enumerate(zip(proj_x_u_list, target_label))
             ]
         else:
-            logit_u_list = [None for _ in target]
+            logit_u_list = [None for _ in target_label]
 
         result = {
             "logit_m_list": logit_m_list,
