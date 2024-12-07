@@ -1,3 +1,7 @@
 pytorch_lightning
 pyyaml
 fairseq
+datasets
+pydub
+torchaudio 
+tensorboardX
