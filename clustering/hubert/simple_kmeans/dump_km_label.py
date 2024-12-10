@@ -13,6 +13,8 @@ import joblib
 import torch
 import tqdm
 
+import pyarrow.dataset as ds
+
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -81,6 +83,16 @@ def dump_label(feat_dir, split, km_path, nshard, rank, lab_dir):
             f.write(" ".join(map(str, lab)) + "\n")
     logger.info("finished successfully")
 
+def dump_labels_fast(feat_dir, km_path, lab_dir):
+    apply_kmeans = ApplyKmeans(km_path)
+    lab_path = f"{lab_dir}/knn100.km"
+    os.makedirs(lab_dir, exist_ok=True)
+    columns_to_load = ["features"]
+    dataset = ds.dataset(feat_dir, format="parquet")
+    df = dataset.to_table(columns=columns_to_load).to_pandas()
+    df['labels'] = df.apply(lambda row: apply_kmeans(row).tolist())
+    labels_str = df['labels'].apply(lambda x: " ".join(map(str, x)))
+    labels_str.to_csv(lab_path, index=False, header=False)
 
 if __name__ == "__main__":
     import argparse

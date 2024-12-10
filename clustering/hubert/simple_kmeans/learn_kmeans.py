@@ -12,6 +12,12 @@ from sklearn.cluster import MiniBatchKMeans
 
 import joblib
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pandas as pd
+import numpy as np
+import pyarrow.dataset as ds
+
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -20,6 +26,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("learn_kmeans")
 
+def truncate_and_redistribute(data, truncate_size):
+    result = []
+    buffer = []
+
+    for arr in data:
+        combined = np.concatenate(buffer + [arr[0]])
+        buffer = []
+
+        while len(combined) > truncate_size:
+            result.append(combined[:truncate_size])
+            combined = combined[truncate_size:]   
+
+        buffer = [combined]
+
+    if buffer and len(buffer[0]) > 0:
+        padded_row = np.pad(buffer[0], (0, truncate_size - len(buffer[0])))
+        result.append(padded_row)
+
+    return np.array(result)
 
 def get_km_model(
     n_clusters,
@@ -45,7 +70,6 @@ def get_km_model(
         reassignment_ratio=reassignment_ratio,
     )
 
-
 def load_feature_shard(feat_dir, split, nshard, rank, percent):
     feat_path = f"{feat_dir}/{split}_{rank}_{nshard}.npy"
     leng_path = f"{feat_dir}/{split}_{rank}_{nshard}.len"
@@ -70,16 +94,19 @@ def load_feature_shard(feat_dir, split, nshard, rank, percent):
         )
         return sampled_feat
 
+def load_feature_parquet(feat_dir, split, nshard, rank, percent):
+    #feat_path = f"{feat_dir}/{split}_{rank}_{nshard}.npy"
+    feat_path = f"{feat_dir}/"
+    segment_size = 16000 * 2
+    columns_to_load = ["features"]
+    dataset = ds.dataset(feat_path, format="parquet")
+    df = dataset.to_table(columns=columns_to_load).to_pandas().to_numpy()
+    training_data = truncate_and_redistribute(df, segment_size)
+    return training_data
 
 def load_feature(feat_dir, split, nshard, seed, percent):
     assert percent <= 1.0
-    feat = np.concatenate(
-        [
-            load_feature_shard(feat_dir, split, nshard, r, percent)
-            for r in range(nshard)
-        ],
-        axis=0,
-    )
+    feat = load_feature_parquet(feat_dir)
     logging.info(f"loaded feature with dimension {feat.shape}")
     return feat
 
